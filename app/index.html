@@ -1,0 +1,593 @@
+<title>Rekap Perpustakaan Al-Wafi</title>
+<!--
+  REKAP PERPUSTAKAAN AL-WAFI
+  ==========================
+  Satu file HTML: STYLE -> MARKUP -> SCRIPT.
+  Dokumentasi lengkap: lihat /docs di repository.
+
+  Catatan: file ini sengaja TIDAK punya <!doctype>, <html>, <head>, <body>.
+  Saat dipublish sebagai Artifact claude.ai, kerangka itu ditambahkan otomatis.
+  Browser tetap bisa membukanya langsung (mode lokal) untuk belajar/uji coba.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap">
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script>
+
+<style>
+  /* ========== 1. DESIGN TOKENS ==========
+     Layout: kepala halaman bergaya sampul kitab, ringkasan kategori,
+     lalu dua kolom (form input | daftar buku) yang menumpuk di HP. */
+  :root {
+    --bg: #f5f6f2;          /* kertas, sedikit hijau */
+    --surface: #ffffff;
+    --ink: #17302b;         /* tinta hijau tua */
+    --muted: #5d6f69;
+    --line: #dde3dc;
+    --accent: #0f5c4d;      /* hijau mushaf */
+    --accent-ink: #ffffff;
+    --brass: #a57a2c;       /* kuningan, dipakai hemat */
+    --danger: #a3372b;
+    --ok: #2f7a4b;
+    --warn: #9a6a12;
+    --font-display: "Amiri", "Times New Roman", serif;
+    --font-body: "Plus Jakarta Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --radius: 8px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0f1715; --surface: #16211e; --ink: #e4ece8; --muted: #9db0a9;
+      --line: #2a3a35; --accent: #5cc2a8; --accent-ink: #0b1513; --brass: #d6aa5a;
+      --danger: #e27a6c; --ok: #6fca91; --warn: #e0b35a; color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0f1715; --surface: #16211e; --ink: #e4ece8; --muted: #9db0a9;
+    --line: #2a3a35; --accent: #5cc2a8; --accent-ink: #0b1513; --brass: #d6aa5a;
+    --danger: #e27a6c; --ok: #6fca91; --warn: #e0b35a; color-scheme: dark;
+  }
+
+  /* ========== 2. BASE ========== */
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg); color: var(--ink);
+    font-family: var(--font-body); font-size: 15px; line-height: 1.5;
+    padding-inline: 16px; padding-block: 24px 48px;
+  }
+  .wrap { max-width: 1180px; margin-inline: auto; display: grid; gap: 24px; }
+  h1, h2 { text-wrap: balance; margin: 0; }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  :focus-visible { outline: 2px solid var(--brass); outline-offset: 2px; }
+  .num { font-variant-numeric: tabular-nums; }
+  .label { font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+
+  /* ========== 3. HEADER ========== */
+  .masthead {
+    display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px;
+    border-bottom: 2px solid var(--ink); padding-bottom: 16px;
+  }
+  .masthead .arabic { font-family: var(--font-display); font-size: 30px; color: var(--brass); line-height: 1.2; }
+  .masthead h1 { font-family: var(--font-display); font-size: clamp(28px, 5vw, 40px); font-weight: 700; line-height: 1.1; }
+  .masthead p { margin: 4px 0 0; color: var(--muted); }
+  .masthead .dates { text-align: right; font-size: 13px; color: var(--muted); }
+
+  .notice { padding: 10px 14px; border-radius: var(--radius); border: 1px solid var(--line); background: var(--surface); font-size: 14px; }
+  .notice.warn { border-color: var(--warn); color: var(--warn); }
+
+  /* ========== 4. RINGKASAN ========== */
+  .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+  .summary div { background: var(--surface); padding: 12px 14px; display: grid; gap: 2px; }
+  .summary b { font-size: 22px; }
+  .summary div.total b { color: var(--accent); }
+
+  /* ========== 5. LAYOUT UTAMA ========== */
+  .main { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 24px; align-items: start; }
+  @media (max-width: 860px) { .main { grid-template-columns: minmax(0, 1fr); } }
+
+  /* ========== 6. FORM ========== */
+  form.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; display: grid; gap: 12px; }
+  form h2 { font-size: 17px; }
+  .field { display: grid; gap: 4px; }
+  .field label { font-size: 13px; font-weight: 600; }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  input, select, textarea {
+    width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg);
+  }
+  textarea { resize: vertical; min-height: 56px; }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+  .btn { border: 1px solid var(--line); background: var(--surface); padding: 8px 14px; border-radius: 6px; cursor: pointer; font-weight: 600; }
+  .btn:hover { border-color: var(--accent); }
+  .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  .btn.small { padding: 4px 10px; font-size: 13px; }
+  .btn.danger { color: var(--danger); }
+  .btn.danger.confirm { background: var(--danger); color: var(--surface); border-color: var(--danger); }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+  .form-msg { font-size: 13px; min-height: 1.2em; margin: 0; }
+  .form-msg.error { color: var(--danger); }
+  .form-msg.ok { color: var(--ok); }
+
+  /* ========== 7. DAFTAR BUKU ========== */
+  .list { display: grid; gap: 12px; min-width: 0; }
+  .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .toolbar input { flex: 1 1 200px; width: auto; }
+  .toolbar select { flex: 0 1 220px; width: auto; }
+  .table-wrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; min-width: 760px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: 12px; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); background: var(--bg); position: sticky; top: 0; }
+  tr:last-child td { border-bottom: 0; }
+  td .title { font-weight: 600; }
+  td .sub { color: var(--muted); font-size: 13px; }
+  .chip { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; border: 1px solid currentColor; white-space: nowrap; }
+  .chip.baik { color: var(--ok); }
+  .chip.ringan { color: var(--warn); }
+  .chip.berat { color: var(--danger); }
+  .row-actions { display: flex; gap: 6px; }
+  .empty { padding: 32px 16px; text-align: center; color: var(--muted); }
+  .count { font-size: 13px; color: var(--muted); }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<!-- ======================= MARKUP ======================= -->
+<div class="wrap">
+  <header class="masthead">
+    <div>
+      <div class="arabic" lang="ar">مكتبة الوافي</div>
+      <h1>Rekap Perpustakaan Al-Wafi</h1>
+      <p>Pendataan koleksi buku keislaman sekolah</p>
+    </div>
+    <div class="dates">
+      <div id="date-masehi"></div>
+      <div id="date-hijri"></div>
+    </div>
+  </header>
+
+  <div id="notice" class="notice warn" hidden></div>
+
+  <section class="summary" id="summary" aria-label="Ringkasan per kategori"></section>
+
+  <div class="main">
+    <!-- Form tambah / ubah buku -->
+    <form class="card" id="book-form" novalidate>
+      <h2 id="form-title">Tambah Buku</h2>
+      <div class="field">
+        <label for="f-judul">Judul buku *</label>
+        <input id="f-judul" name="judul" required maxlength="200" placeholder="cth. Riyadhus Shalihin">
+      </div>
+      <div class="field">
+        <label for="f-penulis">Penulis / Pengarang</label>
+        <input id="f-penulis" name="penulis" maxlength="120" placeholder="cth. Imam An-Nawawi">
+      </div>
+      <div class="row2">
+        <div class="field">
+          <label for="f-penerbit">Penerbit</label>
+          <input id="f-penerbit" name="penerbit" maxlength="120">
+        </div>
+        <div class="field">
+          <label for="f-tahun">Tahun terbit</label>
+          <input id="f-tahun" name="tahun" type="number" inputmode="numeric" min="1000" max="2100">
+        </div>
+      </div>
+      <div class="field">
+        <label for="f-kategori">Kategori *</label>
+        <select id="f-kategori" name="kategori" required></select>
+      </div>
+      <div class="row2">
+        <div class="field">
+          <label for="f-rak">Kode rak</label>
+          <input id="f-rak" name="rak" maxlength="20" placeholder="cth. A-03">
+        </div>
+        <div class="field">
+          <label for="f-eksemplar">Jumlah eksemplar *</label>
+          <input id="f-eksemplar" name="eksemplar" type="number" inputmode="numeric" min="1" value="1" required>
+        </div>
+      </div>
+      <div class="field">
+        <label for="f-kondisi">Kondisi</label>
+        <select id="f-kondisi" name="kondisi"></select>
+      </div>
+      <div class="field">
+        <label for="f-catatan">Catatan</label>
+        <textarea id="f-catatan" name="catatan" maxlength="500" placeholder="cth. wakaf dari wali murid kelas 5"></textarea>
+      </div>
+      <p class="form-msg" id="form-msg" role="status"></p>
+      <div class="actions">
+        <button class="btn primary" type="submit" id="btn-submit">Simpan Buku</button>
+        <button class="btn" type="button" id="btn-cancel" hidden>Batal Ubah</button>
+      </div>
+    </form>
+
+    <!-- Daftar buku -->
+    <section class="list" aria-label="Daftar buku">
+      <div class="toolbar">
+        <input id="q" type="search" placeholder="Cari judul, penulis, rak…" aria-label="Cari buku">
+        <select id="filter-kategori" aria-label="Filter kategori"></select>
+        <button class="btn primary" type="button" id="btn-pdf">Download PDF</button>
+      </div>
+      <div class="count" id="count"></div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Judul &amp; Penulis</th>
+              <th>Kategori</th>
+              <th>Rak</th>
+              <th>Eks.</th>
+              <th>Kondisi</th>
+              <th>Diinput oleh</th>
+              <th><span class="label">Aksi</span></th>
+            </tr>
+          </thead>
+          <tbody id="tbody"></tbody>
+        </table>
+        <div class="empty" id="empty" hidden></div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<!-- ======================= SCRIPT ======================= -->
+<script>
+(() => {
+  "use strict";
+
+  /* ---------- 1. KONFIGURASI (ubah di sini bila perlu) ---------- */
+  const CONFIG = {
+    namaSekolah: "Perpustakaan Al-Wafi",
+    koleksi: "books",                  // nama collection di database
+    kategori: [
+      "Al-Qur'an & Tafsir", "Hadits", "Aqidah & Tauhid", "Fiqih",
+      "Akhlak & Adab", "Sirah & Sejarah Islam", "Bahasa Arab",
+      "Doa & Dzikir", "Cerita Anak Islami", "Umum",
+    ],
+    kondisi: ["Baik", "Rusak ringan", "Rusak berat"],
+  };
+
+  /* ---------- 2. STATE ---------- */
+  const state = {
+    books: [],          // [{id, judul, penulis, ...}]
+    editingId: null,    // id buku yang sedang diubah, null = mode tambah
+    names: {},          // cache id pengguna -> nama tampilan
+    canWrite: true,
+  };
+
+  const $ = (sel) => document.querySelector(sel);
+  const el = {
+    form: $("#book-form"), formTitle: $("#form-title"), formMsg: $("#form-msg"),
+    submit: $("#btn-submit"), cancel: $("#btn-cancel"),
+    q: $("#q"), filter: $("#filter-kategori"), pdf: $("#btn-pdf"),
+    tbody: $("#tbody"), empty: $("#empty"), count: $("#count"),
+    summary: $("#summary"), notice: $("#notice"),
+  };
+
+  /* ---------- 3. UTIL ---------- */
+  const fmtMasehi = () => new Intl.DateTimeFormat("id-ID", { dateStyle: "full" }).format(new Date());
+  const fmtHijri = () => {
+    try {
+      return new Intl.DateTimeFormat("id-ID-u-ca-islamic-umalqura", { day: "numeric", month: "long", year: "numeric" }).format(new Date());
+    } catch { return ""; }
+  };
+  const showNotice = (text) => { el.notice.textContent = text; el.notice.hidden = !text; };
+  const setMsg = (text, type = "") => { el.formMsg.textContent = text; el.formMsg.className = "form-msg " + type; };
+  const kondisiClass = (k) => k === "Baik" ? "baik" : k === "Rusak ringan" ? "ringan" : "berat";
+
+  /** Buat elemen dengan teks aman (tanpa innerHTML untuk data pengguna). */
+  function h(tag, props = {}, ...children) {
+    const node = document.createElement(tag);
+    Object.assign(node, props);
+    children.flat().forEach((c) => c != null && node.append(c));
+    return node;
+  }
+
+  /* ---------- 4. STORAGE ADAPTER ----------
+     Satu antarmuka, dua implementasi:
+     - cloudStore : database bersama Artifact (claude.ai) -> semua anggota lihat data yang sama
+     - localStore : localStorage browser (hanya saat file dibuka langsung, untuk latihan)
+     Antarmuka: subscribe(cb), add(data), update(id, data), remove(id) */
+  function cloudStore(db) {
+    const col = db.collection(CONFIG.koleksi);
+    return {
+      subscribe(cb, onError) {
+        return col.orderBy("createdAt", "desc").onSnapshot(
+          (snap) => cb(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+          onError,
+        );
+      },
+      add: (data) => col.doc().set(data),
+      update: (id, data) => col.doc(id).update(data),
+      remove: (id) => col.doc(id).delete(),
+    };
+  }
+
+  function localStore() {
+    const KEY = "alwafi-books";
+    let listener = () => {};
+    const read = () => { try { return JSON.parse(localStorage.getItem(KEY)) || []; } catch { return []; } };
+    const write = (list) => {
+      try { localStorage.setItem(KEY, JSON.stringify(list)); } catch { /* storage diblokir */ }
+      listener([...list].sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
+    };
+    return {
+      subscribe(cb) { listener = cb; write(read()); return () => {}; },
+      async add(data) { write([...read(), { id: crypto.randomUUID(), ...data }]); },
+      async update(id, data) { write(read().map((b) => b.id === id ? { ...b, ...data } : b)); },
+      async remove(id) { write(read().filter((b) => b.id !== id)); },
+    };
+  }
+
+  /* ---------- 5. PENGGUNA ---------- */
+  let userApi = null;
+  let myId = null;
+
+  async function resolveNames(ids) {
+    const missing = [...new Set(ids)].filter((id) => id && !(id in state.names));
+    if (!missing.length || !userApi) return;
+    try {
+      const profiles = await userApi.profiles(missing);
+      missing.forEach((id) => { state.names[id] = profiles[id]?.name || "Anggota"; });
+      renderTable();
+    } catch { /* nama tidak wajib */ }
+  }
+
+  /* ---------- 6. RENDER ---------- */
+  function fillSelects() {
+    CONFIG.kategori.forEach((k) => $("#f-kategori").append(h("option", { value: k, textContent: k })));
+    CONFIG.kondisi.forEach((k) => $("#f-kondisi").append(h("option", { value: k, textContent: k })));
+    el.filter.append(h("option", { value: "", textContent: "Semua kategori" }));
+    CONFIG.kategori.forEach((k) => el.filter.append(h("option", { value: k, textContent: k })));
+  }
+
+  function filteredBooks() {
+    const q = el.q.value.trim().toLowerCase();
+    const kat = el.filter.value;
+    return state.books.filter((b) =>
+      (!kat || b.kategori === kat) &&
+      (!q || [b.judul, b.penulis, b.penerbit, b.rak].some((v) => (v || "").toLowerCase().includes(q))));
+  }
+
+  /** Ringkasan: total judul & eksemplar, plus jumlah judul per kategori yang terisi. */
+  function summarize(books) {
+    const perKategori = {};
+    books.forEach((b) => { perKategori[b.kategori] = (perKategori[b.kategori] || 0) + 1; });
+    return {
+      judul: books.length,
+      eksemplar: books.reduce((n, b) => n + (Number(b.eksemplar) || 0), 0),
+      perKategori,
+    };
+  }
+
+  function renderSummary() {
+    const s = summarize(state.books);
+    const tile = (label, value, cls = "") =>
+      h("div", { className: cls }, h("span", { className: "label", textContent: label }), h("b", { className: "num", textContent: value }));
+    el.summary.replaceChildren(
+      tile("Total judul", s.judul, "total"),
+      tile("Total eksemplar", s.eksemplar, "total"),
+      ...CONFIG.kategori.filter((k) => s.perKategori[k]).map((k) => tile(k, s.perKategori[k])),
+    );
+  }
+
+  function renderTable() {
+    const rows = filteredBooks();
+    el.count.textContent = `Menampilkan ${rows.length} dari ${state.books.length} judul`;
+    el.empty.hidden = rows.length > 0;
+    el.empty.textContent = state.books.length
+      ? "Tidak ada buku yang cocok dengan pencarian."
+      : "Belum ada buku. Isi formulir di samping untuk menambahkan buku pertama.";
+
+    el.tbody.replaceChildren(...rows.map((b) => {
+      const actions = state.canWrite
+        ? h("div", { className: "row-actions" },
+            h("button", { className: "btn small", type: "button", textContent: "Ubah", onclick: () => startEdit(b) }),
+            deleteButton(b))
+        : "–";
+      return h("tr", {},
+        h("td", {}, h("div", { className: "title", textContent: b.judul }),
+          h("div", { className: "sub", textContent: [b.penulis, b.penerbit, b.tahun].filter(Boolean).join(" · ") })),
+        h("td", { textContent: b.kategori }),
+        h("td", { textContent: b.rak || "–" }),
+        h("td", { className: "num", textContent: b.eksemplar }),
+        h("td", {}, h("span", { className: "chip " + kondisiClass(b.kondisi), textContent: b.kondisi })),
+        h("td", { className: "sub", textContent: state.names[b.inputBy] || (b.inputBy ? "…" : "–") }),
+        h("td", {}, actions));
+    }));
+    resolveNames(rows.map((b) => b.inputBy));
+  }
+
+  /** Tombol hapus dua langkah: klik pertama minta konfirmasi, klik kedua menghapus. */
+  function deleteButton(book) {
+    const btn = h("button", { className: "btn small danger", type: "button", textContent: "Hapus" });
+    let timer;
+    btn.onclick = async () => {
+      if (!btn.classList.contains("confirm")) {
+        btn.classList.add("confirm"); btn.textContent = "Yakin hapus?";
+        timer = setTimeout(() => { btn.classList.remove("confirm"); btn.textContent = "Hapus"; }, 3000);
+        return;
+      }
+      clearTimeout(timer); btn.disabled = true;
+      try { await store.remove(book.id); setMsg(`"${book.judul}" dihapus.`, "ok"); }
+      catch (e) { btn.disabled = false; setMsg(writeErrorText(e), "error"); }
+    };
+    return btn;
+  }
+
+  const render = () => { renderSummary(); renderTable(); };
+
+  /* ---------- 7. FORM ---------- */
+  function readForm() {
+    const f = new FormData(el.form);
+    const str = (k) => String(f.get(k) || "").trim();
+    return {
+      judul: str("judul"), penulis: str("penulis"), penerbit: str("penerbit"),
+      tahun: str("tahun") ? Number(str("tahun")) : null,
+      kategori: str("kategori"), rak: str("rak").toUpperCase(),
+      eksemplar: Number(str("eksemplar")), kondisi: str("kondisi"), catatan: str("catatan"),
+    };
+  }
+
+  function validate(b) {
+    if (!b.judul) return "Judul buku wajib diisi.";
+    if (!CONFIG.kategori.includes(b.kategori)) return "Pilih kategori.";
+    if (!Number.isInteger(b.eksemplar) || b.eksemplar < 1) return "Jumlah eksemplar minimal 1.";
+    if (b.tahun !== null && (!Number.isInteger(b.tahun) || b.tahun < 1000 || b.tahun > 2100)) return "Tahun terbit tidak valid.";
+    return "";
+  }
+
+  function startEdit(b) {
+    state.editingId = b.id;
+    for (const [k, v] of Object.entries(b)) {
+      const input = el.form.elements.namedItem(k);
+      if (input) input.value = v ?? "";
+    }
+    el.formTitle.textContent = "Ubah Buku";
+    el.submit.textContent = "Simpan Perubahan";
+    el.cancel.hidden = false;
+    setMsg("");
+    el.form.scrollIntoView({ behavior: "smooth", block: "start" });
+    $("#f-judul").focus({ preventScroll: true });
+  }
+
+  function resetForm() {
+    state.editingId = null;
+    el.form.reset();
+    el.formTitle.textContent = "Tambah Buku";
+    el.submit.textContent = "Simpan Buku";
+    el.cancel.hidden = true;
+  }
+
+  function writeErrorText(e) {
+    if (e?.code === "invalid_argument") return "Anda tidak punya izin mengubah data. Minta akses Contributor/Editor ke pemilik.";
+    if (e?.code === "quota_exceeded") return "Kapasitas database penuh.";
+    return "Gagal menyimpan. Periksa koneksi lalu coba lagi.";
+  }
+
+  async function onSubmit(ev) {
+    ev.preventDefault();
+    const data = readForm();
+    const err = validate(data);
+    if (err) return setMsg(err, "error");
+
+    el.submit.disabled = true;
+    const now = new Date().toISOString();
+    try {
+      if (state.editingId) {
+        await store.update(state.editingId, { ...data, updatedAt: now });
+        setMsg(`"${data.judul}" diperbarui.`, "ok");
+      } else {
+        await store.add({ ...data, inputBy: myId, createdAt: now, updatedAt: now });
+        setMsg(`"${data.judul}" ditambahkan.`, "ok");
+      }
+      resetForm();
+    } catch (e) {
+      setMsg(writeErrorText(e), "error");
+    } finally {
+      el.submit.disabled = false;
+    }
+  }
+
+  /* ---------- 8. EKSPOR PDF ---------- */
+  function buildPdf(books) {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+    const filterLabel = el.filter.value || "Semua kategori";
+
+    doc.setFont("helvetica", "bold").setFontSize(16).text(`Rekap Koleksi Buku ${CONFIG.namaSekolah}`, 14, 16);
+    doc.setFont("helvetica", "normal").setFontSize(10)
+      .text(`Dicetak: ${fmtMasehi()}${fmtHijri() ? " / " + fmtHijri() : ""}`, 14, 23)
+      .text(`Kategori: ${filterLabel}   |   Pencarian: ${el.q.value.trim() || "-"}`, 14, 28);
+
+    doc.autoTable({
+      startY: 33,
+      head: [["No", "Judul", "Penulis", "Penerbit", "Tahun", "Kategori", "Rak", "Eks.", "Kondisi", "Catatan"]],
+      body: books.map((b, i) => [i + 1, b.judul, b.penulis || "-", b.penerbit || "-", b.tahun || "-",
+        b.kategori, b.rak || "-", b.eksemplar, b.kondisi, b.catatan || ""]),
+      styles: { fontSize: 8, cellPadding: 1.8 },
+      headStyles: { fillColor: [15, 92, 77] },
+      columnStyles: { 0: { halign: "right", cellWidth: 9 }, 7: { halign: "right" } },
+    });
+
+    const s = summarize(books);
+    doc.autoTable({
+      startY: doc.lastAutoTable.finalY + 8,
+      head: [["Kategori", "Jumlah judul"]],
+      body: [...CONFIG.kategori.filter((k) => s.perKategori[k]).map((k) => [k, s.perKategori[k]]),
+        ["TOTAL JUDUL", s.judul], ["TOTAL EKSEMPLAR", s.eksemplar]],
+      styles: { fontSize: 9 },
+      headStyles: { fillColor: [165, 122, 44] },
+      tableWidth: 90,
+    });
+
+    const pages = doc.getNumberOfPages();
+    for (let p = 1; p <= pages; p++) {
+      doc.setPage(p).setFontSize(8).text(`Halaman ${p} dari ${pages}`, 283, 203, { align: "right" });
+    }
+    return doc;
+  }
+
+  async function onDownloadPdf() {
+    if (!window.jspdf?.jsPDF?.API?.autoTable) return setMsg("Library PDF belum termuat. Muat ulang halaman.", "error");
+    const books = filteredBooks();
+    if (!books.length) return setMsg("Tidak ada data untuk dicetak.", "error");
+
+    const doc = buildPdf(books);
+    const filename = `rekap-perpustakaan-al-wafi-${new Date().toISOString().slice(0, 10)}.pdf`;
+
+    if (!downloads) { doc.save(filename); return; }       // mode lokal: unduh langsung
+    try {
+      await downloads.save({ filename, data: doc.output("blob") });
+      setMsg("PDF tersimpan.", "ok");
+    } catch (e) {
+      if (e?.code !== "declined") setMsg("PDF tidak bisa diunduh di tampilan ini.", "error");
+    }
+  }
+
+  /* ---------- 9. START ---------- */
+  let store = null;
+  let downloads = null;
+
+  function setReadOnly(text) {
+    state.canWrite = false;
+    [...el.form.elements].forEach((x) => { x.disabled = true; });
+    showNotice(text);
+    renderTable();
+  }
+
+  async function start() {
+    $("#date-masehi").textContent = fmtMasehi();
+    $("#date-hijri").textContent = fmtHijri();
+    fillSelects();
+    el.form.addEventListener("submit", onSubmit);
+    el.cancel.addEventListener("click", () => { resetForm(); setMsg(""); });
+    el.q.addEventListener("input", renderTable);
+    el.filter.addEventListener("change", renderTable);
+    el.pdf.addEventListener("click", onDownloadPdf);
+    render();
+
+    // Dibuka langsung di browser (bukan Artifact) -> pakai localStorage.
+    if (!window.claude?.use) {
+      store = localStore();
+      showNotice("Mode lokal: data hanya tersimpan di browser ini. Publish sebagai Artifact agar bisa dipakai bersama.");
+      store.subscribe((books) => { state.books = books; render(); });
+      return;
+    }
+
+    const [db, user, dl] = await Promise.all(["db", "user", "downloads"].map((n) => window.claude.use(n)));
+    userApi = user; downloads = dl;
+    if (!dl) el.pdf.hidden = true;
+    if (!db) return setReadOnly("Masuk (login) ke akun Claude untuk melihat dan mengisi data perpustakaan.");
+
+    myId = user ? await user.id() : null;
+    store = cloudStore(db);
+    store.subscribe(
+      (books) => { state.books = books; render(); },
+      () => showNotice("Koneksi ke database terputus. Muat ulang halaman."),
+    );
+    const canWrite = user ? await user.can("data.write") : null;
+    if (canWrite === false) setReadOnly("Anda hanya bisa melihat. Minta akses Contributor ke pemilik untuk ikut mengisi.");
+  }
+
+  start();
+})();
+</script>
